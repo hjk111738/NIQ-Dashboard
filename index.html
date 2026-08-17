@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>롯데웰푸드 마켓 인텔리전스 대시보드</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800 antialiased font-sans">
+    <div class="max-w-7xl mx-auto p-6 space-y-6">
+        
+        <!-- 상단 헤더 & 컨트롤 바 -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-5 rounded-2xl shadow-sm border border-slate-200 gap-4">
+            <div class="flex items-center gap-3">
+                <div class="p-3 bg-red-600 text-white rounded-2xl shadow-md font-black text-xl tracking-tight">
+                    LOTTE
+                </div>
+                <div>
+                    <h1 class="text-2xl font-black text-slate-900 tracking-tight">롯데웰푸드 마켓 인텔리전스</h1>
+                    <p class="text-xs font-semibold text-slate-400">자사(롯데웰푸드) vs 경쟁사 포지셔닝 & 트렌드 분석</p>
+                </div>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-3">
+                <!-- 소수점 자릿수 조절 -->
+                <div class="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                    <label class="text-xs font-bold text-slate-500">소수점:</label>
+                    <select id="decimalSelect" onchange="updateFormatting()" class="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer">
+                        <option value="0">0자리</option>
+                        <option value="1" selected>1자리</option>
+                        <option value="2">2자리</option>
+                    </select>
+                </div>
+
+                <!-- 카테고리(시트) 선택 -->
+                <div class="flex items-center gap-2">
+                    <label class="text-xs font-bold text-slate-500 uppercase">카테고리</label>
+                    <select id="categorySelect" class="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-2 text-sm font-bold focus:ring-2 focus:ring-red-500 focus:outline-none cursor-pointer shadow-sm">
+                        <option value="">로딩 중...</option>
+                    </select>
+                </div>
+            </div>
+        </header>
+
+        <!-- 세부 필터 바 (채널, 연도, 월, 제조사, 검색) -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-2 md:grid-cols-6 gap-3 items-center">
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">유통 채널</label>
+                <select id="marketFilter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="ALL">전체 채널</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">연도</label>
+                <select id="yearFilter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="ALL">전체 연도</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">월</label>
+                <select id="monthFilter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="ALL">전체 월</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">제조사</label>
+                <select id="mfrFilter" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <option value="ALL">전체 제조사</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1">제품/브랜드 검색</label>
+                <input type="text" id="searchInput" placeholder="검색어 입력..." class="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-red-500">
+            </div>
+            <div class="col-span-2 md:col-span-1 flex items-end h-full gap-2">
+                <button onclick="applyFilters()" class="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-2 rounded-lg text-xs transition shadow-sm">적용</button>
+                <button onclick="resetFilters()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition">초기화</button>
+            </div>
+        </div>
+
+        <!-- KPI 카드 영역: 시장 전체 vs 자사(롯데웰푸드) 성과 비교 -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <!-- 자사 M/S 강조 카드 -->
+            <div class="bg-gradient-to-br from-red-600 to-rose-700 p-5 rounded-2xl text-white shadow-md">
+                <p class="text-xs font-bold text-red-200 uppercase">자사 점유율 (M/S)</p>
+                <p class="text-3xl font-black mt-1" id="kpiLotteMs">-</p>
+                <p class="text-xs text-red-100 mt-1" id="kpiLotteRank">카테고리 -위</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400">자사 매출액 (롯데웰푸드)</p>
+                <p class="text-2xl font-black text-red-600 mt-1" id="kpiLotteSales">-</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400">시장 전체 매출액</p>
+                <p class="text-2xl font-black text-slate-900 mt-1" id="kpiTotalSales">-</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400">시장 전체 판매수량</p>
+                <p class="text-2xl font-black text-emerald-600 mt-1" id="kpiQty">-</p>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <p class="text-xs font-bold text-slate-400">분석 SKU / 제조사</p>
+                <p class="text-2xl font-black text-slate-800 mt-1" id="kpiSku">-</p>
+            </div>
+        </div>
+
+        <!-- 차트 1행: 제조사 점유율 + 브랜드 랭킹 -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                <h2 class="text-sm font-black text-slate-800 mb-3 flex items-center justify-between">
+                    <span>제조사별 매출 점유율</span>
+                    <span class="text-xs text-red-600 font-bold">■ 롯데웰푸드</span>
+                </h2>
+                <div class="h-64 flex justify-center">
+                    <canvas id="mfrChart"></canvas>
+                </div>
+            </div>
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm lg:col-span-2">
+                <h2 class="text-sm font-black text-slate-800 mb-3">Top 10 브랜드 매출 순위 (억원)</h2>
+                <div class="h-64">
+                    <canvas id="brandChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- 차트 2행: 제조사 다중 선택 시계열 추이 비교 (YY년 MM월) -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2">
+                <div>
+                    <h2 class="text-sm font-black text-slate-800">제조사별 시계열 매출 추이 비교 (억원)</h2>
+                    <p class="text-xs text-slate-400 mt-0.5">비교하고 싶은 제조사를 선택하여 트렌드를 분석하세요.</p>
+                </div>
+                <!-- 제조사 선택 체크박스 컨테이너 -->
+                <div id="trendMfrSelectors" class="flex flex-wrap items-center gap-2"></div>
+            </div>
+            <div class="h-80">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 데이터 테이블 & CSV 다운로드 -->
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-sm font-black text-slate-800">조회 데이터 상세 목록 (상위 200개)</h2>
+                <button onclick="downloadCSV()" class="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-sm">
+                    📥 CSV 다운로드
+                </button>
+            </div>
+            <div class="overflow-x-auto max-h-96 border border-slate-200 rounded-xl">
+                <table class="min-w-full text-left text-xs divide-y divide-slate-200">
+                    <thead class="bg-slate-50 text-slate-600 sticky top-0 font-bold">
+                        <tr>
+                            <th class="px-4 py-3">채널(Markets)</th>
+                            <th class="px-4 py-3">기간</th>
+                            <th class="px-4 py-3">제조사</th>
+                            <th class="px-4 py-3">브랜드</th>
+                            <th class="px-4 py-3">제품명</th>
+                            <th class="px-4 py-3 text-right">판매액 (억원)</th>
+                            <th class="px-4 py-3 text-right">판매수량 (000)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody" class="divide-y divide-slate-100 bg-white text-slate-700"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mfrChart = null;
+        let brandChart = null;
+        let trendChart = null;
+        let rawDashboardData = null;
+        let selectedTrendMfrs = new Set(); // 사용자가 선택한 제조사 목록
+
+        const PALETTE = ['#2563EB', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4'];
+
+        const monthNames = {
+            "JAN": "01월 (Jan)", "FEB": "02월 (Feb)", "MAR": "03월 (Mar)", "APR": "04월 (Apr)",
+            "MAY": "05월 (May)", "JUN": "06월 (Jun)", "JUL": "07월 (Jul)", "AUG": "08월 (Aug)",
+            "SEP": "09월 (Sep)", "OCT": "10월 (Oct)", "NOV": "11월 (Nov)", "DEC": "12월 (Dec)"
+        };
+
+        function getDecimals() {
+            return parseInt(document.getElementById('decimalSelect').value, 10);
+        }
+
+        function formatEok(val) {
+            const dec = getDecimals();
+            return Number(val).toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+        }
+
+        async function init() {
+            const res = await fetch('/api/sheets');
+            const data = await res.json();
+            const select = document.getElementById('categorySelect');
+            select.innerHTML = '';
+
+            data.sheets.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.file;
+                opt.textContent = s.name;
+                select.appendChild(opt);
+            });
+
+            if (data.sheets.length > 0) {
+                await loadFilters(data.sheets[0].file);
+                await loadDashboard(true);
+            }
+        }
+
+        async function loadFilters(fileName) {
+            const res = await fetch(`/api/filters/${fileName}`);
+            const f = await res.json();
+
+            const mktSelect = document.getElementById('marketFilter');
+            mktSelect.innerHTML = '<option value="ALL">전체 채널</option>';
+            f.markets.forEach(m => mktSelect.innerHTML += `<option value="${m}">${m}</option>`);
+
+            const ySelect = document.getElementById('yearFilter');
+            ySelect.innerHTML = '<option value="ALL">전체 연도</option>';
+            f.years.forEach(y => ySelect.innerHTML += `<option value="${y}">${y}</option>`);
+
+            const mSelect = document.getElementById('monthFilter');
+            mSelect.innerHTML = '<option value="ALL">전체 월</option>';
+            f.months.forEach(m => mSelect.innerHTML += `<option value="${m}">${monthNames[m] || m}</option>`);
+
+            const mfrSelect = document.getElementById('mfrFilter');
+            mfrSelect.innerHTML = '<option value="ALL">전체 제조사</option>';
+            f.manufacturers.forEach(m => mfrSelect.innerHTML += `<option value="${m}">${m}</option>`);
+        }
+
+        async function loadDashboard(resetMfrSelection = false) {
+            const file = document.getElementById('categorySelect').value;
+            const market = document.getElementById('marketFilter').value;
+            const year = document.getElementById('yearFilter').value;
+            const month = document.getElementById('monthFilter').value;
+            const mfr = document.getElementById('mfrFilter').value;
+            const search = document.getElementById('searchInput').value.trim();
+
+            const queryParams = new URLSearchParams({
+                market: market,
+                year: year,
+                month: month,
+                manufacturer: mfr,
+                search: search
+            });
+
+            const res = await fetch(`/api/dashboard/${file}?${queryParams}`);
+            rawDashboardData = await res.json();
+
+            if (resetMfrSelection) {
+                // 초기 선택: 롯데웰푸드 및 상위 2개 제조사 기본 선택
+                selectedTrendMfrs.clear();
+                selectedTrendMfrs.add('롯데웰푸드');
+                rawDashboardData.all_mfr_names.filter(m => m !== '롯데웰푸드').slice(0, 2).forEach(m => selectedTrendMfrs.add(m));
+                buildTrendSelectors();
+            }
+
+            renderDashboard();
+        }
+
+        function buildTrendSelectors() {
+            const container = document.getElementById('trendMfrSelectors');
+            container.innerHTML = '';
+            
+            const topMfrs = rawDashboardData.all_mfr_names.slice(0, 8);
+            topMfrs.forEach(mfr => {
+                const isLotte = mfr === '롯데웰푸드';
+                const isChecked = selectedTrendMfrs.has(mfr);
+                
+                const label = document.createElement('label');
+                label.className = `flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition border ${
+                    isLotte ? 'border-red-300 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`;
+                
+                label.innerHTML = `
+                    <input type="checkbox" value="${mfr}" ${isChecked ? 'checked' : ''} onchange="toggleTrendMfr('${mfr}')" class="accent-red-600 rounded">
+                    <span>${mfr}</span>
+                `;
+                container.appendChild(label);
+            });
+        }
+
+        function toggleTrendMfr(mfr) {
+            if (selectedTrendMfrs.has(mfr)) {
+                selectedTrendMfrs.delete(mfr);
+            } else {
+                selectedTrendMfrs.add(mfr);
+            }
+            renderTrendChart();
+        }
+
+        function renderDashboard() {
+            if (!rawDashboardData) return;
+            const d = rawDashboardData;
+
+            // KPI 업데이트
+            document.getElementById('kpiLotteMs').textContent = d.kpi.lotte_ms + ' %';
+            document.getElementById('kpiLotteRank').textContent = `카테고리 내 ${d.kpi.lotte_rank}`;
+            document.getElementById('kpiLotteSales').textContent = formatEok(d.kpi.lotte_sales_eok) + ' 억';
+            document.getElementById('kpiTotalSales').textContent = formatEok(d.kpi.total_sales_eok) + ' 억';
+            document.getElementById('kpiQty').textContent = Number(d.kpi.total_qty).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' k';
+            document.getElementById('kpiSku').textContent = `${d.kpi.item_count}개 / ${d.kpi.manufacturer_count}개사`;
+
+            // 1. 도넛 차트 (롯데웰푸드는 Red 계열 강조)
+            if (mfrChart) mfrChart.destroy();
+            const mfrColors = d.manufacturers.map((m, i) => m.manufacturer === '롯데웰푸드' ? '#DC2626' : PALETTE[i % PALETTE.length]);
+            
+            mfrChart = new Chart(document.getElementById('mfrChart'), {
+                type: 'doughnut',
+                data: {
+                    labels: d.manufacturers.map(m => m.manufacturer),
+                    datasets: [{
+                        data: d.manufacturers.map(m => Number(m.sales_eok.toFixed(getDecimals()))),
+                        backgroundColor: mfrColors
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ` ${ctx.label}: ${formatEok(ctx.raw)} 억원`
+                            }
+                        }
+                    }
+                }
+            });
+
+            // 2. 브랜드 Top 10 바 차트 (자사 브랜드는 Red, 타사는 Blue)
+            if (brandChart) brandChart.destroy();
+            const brandColors = d.brands.map(b => b.manufacturer === '롯데웰푸드' ? '#DC2626' : '#3B82F6');
+
+            brandChart = new Chart(document.getElementById('brandChart'), {
+                type: 'bar',
+                data: {
+                    labels: d.brands.map(b => b.brand),
+                    datasets: [{
+                        label: '판매액 (억원)',
+                        data: d.brands.map(b => Number(b.sales_eok.toFixed(getDecimals()))),
+                        backgroundColor: brandColors,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ` 판매액: ${formatEok(ctx.raw)} 억원`
+                            }
+                        }
+                    }
+                }
+            });
+
+            renderTrendChart();
+
+            // 4. 테이블 렌더링 (롯데웰푸드 행 강조)
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = d.table.map(r => {
+                const isLotte = r.MANUFACTURER === '롯데웰푸드';
+                return `
+                    <tr class="hover:bg-slate-50 ${isLotte ? 'bg-red-50/40 font-semibold' : ''}">
+                        <td class="px-4 py-2 whitespace-nowrap font-medium text-slate-600">${r.Markets || ''}</td>
+                        <td class="px-4 py-2 whitespace-nowrap text-slate-500">${r.Periods || ''}</td>
+                        <td class="px-4 py-2 ${isLotte ? 'text-red-700 font-bold' : 'text-slate-800'}">${r.MANUFACTURER || ''}</td>
+                        <td class="px-4 py-2">${r.BRAND || ''}</td>
+                        <td class="px-4 py-2 text-slate-500">${r.ITEM || ''}</td>
+                        <td class="px-4 py-2 text-right font-black ${isLotte ? 'text-red-600' : 'text-blue-600'}">${formatEok(r["판매액 (억원)"] || 0)} 억</td>
+                        <td class="px-4 py-2 text-right font-medium">${Number(r["판매수량 (000)"] || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        // 3. 제조사별 시계열 라인 차트 (YY년 MM월 X축)
+        function renderTrendChart() {
+            if (trendChart) trendChart.destroy();
+            const d = rawDashboardData;
+            
+            let colorIdx = 0;
+            const datasets = Array.from(selectedTrendMfrs).map(mfrName => {
+                const isLotte = mfrName === '롯데웰푸드';
+                const color = isLotte ? '#DC2626' : PALETTE[colorIdx++ % PALETTE.length];
+                const seriesData = (d.trend_matrix[mfrName] || {});
+                
+                return {
+                    label: mfrName,
+                    data: d.periods_all.map(p => Number((seriesData[p] || 0).toFixed(getDecimals()))),
+                    borderColor: color,
+                    backgroundColor: isLotte ? 'rgba(220, 38, 38, 0.05)' : 'transparent',
+                    borderWidth: isLotte ? 3 : 2,
+                    pointRadius: isLotte ? 4 : 2,
+                    tension: 0.2
+                };
+            });
+
+            trendChart = new Chart(document.getElementById('trendChart'), {
+                type: 'line',
+                data: {
+                    labels: d.periods_all,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => ` ${ctx.dataset.label}: ${formatEok(ctx.raw)} 억원`
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateFormatting() {
+            renderDashboard();
+        }
+
+        function applyFilters() {
+            loadDashboard(false);
+        }
+
+        function resetFilters() {
+            document.getElementById('marketFilter').value = 'ALL';
+            document.getElementById('yearFilter').value = 'ALL';
+            document.getElementById('monthFilter').value = 'ALL';
+            document.getElementById('mfrFilter').value = 'ALL';
+            document.getElementById('searchInput').value = '';
+            loadDashboard(false);
+        }
+
+        document.getElementById('categorySelect').addEventListener('change', async (e) => {
+            await loadFilters(e.target.value);
+            loadDashboard(true);
+        });
+
+        document.getElementById('searchInput').addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') applyFilters();
+        });
+
+        function downloadCSV() {
+            if (!rawDashboardData || !rawDashboardData.table || rawDashboardData.table.length === 0) {
+                return alert('다운로드할 데이터가 없습니다.');
+            }
+            const headers = ["Markets", "Periods", "MANUFACTURER", "BRAND", "ITEM", "판매액 (억원)", "판매수량 (000)"];
+            const csvRows = [headers.join(",")];
+
+            rawDashboardData.table.forEach(row => {
+                const values = [
+                    `"${row.Markets || ''}"`,
+                    `"${row.Periods || ''}"`,
+                    `"${row.MANUFACTURER || ''}"`,
+                    `"${row.BRAND || ''}"`,
+                    `"${row.ITEM || ''}"`,
+                    `"${formatEok(row["판매액 (억원)"] || 0)}"`,
+                    `"${row["판매수량 (000)"] || 0}"`
+                ];
+                csvRows.push(values.join(","));
+            });
+
+            const blob = new Blob(["\uFEFF" + csvRows.join("\n")], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `LotteWellfood_MarketData_${Date.now()}.csv`;
+            a.click();
+        }
+
+        init();
+    </script>
+</body>
+</html>
