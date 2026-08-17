@@ -1,15 +1,16 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 import duckdb
-import glob
 import os
+import urllib.parse
 from typing import Optional
 
 app = FastAPI()
 
-# 현재 main.py가 위치한 절대 경로
+# 현재 main.py가 위치한 절대 경로 (리눅스 호스팅 환경 필수)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# 1. Periods -> "YY년 MM월" 변환 표현식
 PERIOD_FORMAT_EXPR = """
 CASE 
     WHEN UPPER(SUBSTRING("Periods", 1, 3)) = 'JAN' THEN SUBSTRING("Periods", 5, 2) || '년 01월'
@@ -28,6 +29,7 @@ CASE
 END
 """
 
+# 2. Periods 정렬용 YYYYMM 생성 표현식
 PERIOD_SORT_EXPR = """
 CASE 
     WHEN UPPER(SUBSTRING("Periods", 1, 3)) = 'JAN' THEN '20' || SUBSTRING("Periods", 5, 2) || '01'
@@ -46,36 +48,49 @@ CASE
 END
 """
 
+# 메인 화면 서빙
 @app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def serve_dashboard():
     html_path = os.path.join(BASE_DIR, "index.html")
     with open(html_path, "r", encoding="utf-8") as f:
         return f.read()
 
+# 1. Parquet 시트 목록 조회 API (리눅스 파일 목록 직접 탐색)
 @app.get("/api/sheets")
 def get_sheets():
-    files = glob.glob(os.path.join(BASE_DIR, "data_*.parquet"))
-    sheet_list = [
-        {"file": os.path.basename(f), "name": os.path.basename(f).replace("data_", "").replace(".parquet", "")}
-        for f in sorted(files)
-    ]
-    return {"sheets": sheet_list}
+    try:
+        all_files = os.listdir(BASE_DIR)
+        parquet_files = [f for f in all_files if f.startswith("data_") and f.endswith(".parquet")]
+        sheet_list = [
+            {"file": f, "name": f.replace("data_", "").replace(".parquet", "")}
+            for f in sorted(parquet_files)
+        ]
+        return {"sheets": sheet_list}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
+# 2. 필터 옵션 조회 API
 @app.get("/api/filters/{file_name}")
 def get_filter_options(file_name: str):
-    if not file_name.startswith("data_") or not file_name.endswith(".parquet"):
-        return {"error": "Invalid file"}
+    # URL 인코딩 해제 (한글 파일명 안전 처리)
+    decoded_file_name = urllib.parse.unquote(file_name)
+    file_path = os.path.join(BASE_DIR, decoded_file_name)
     
-    file_path = os.path.join(BASE_DIR, file_name)
+    if not os.path.exists(file_path):
+        return JSONResponse(status_code=404, content={"error": f"File not found: {decoded_file_name}"})
+    
     conn = duckdb.connect()
     
     markets = [r[0] for r in conn.execute(f"SELECT DISTINCT \"Markets\" FROM '{file_path}' WHERE \"Markets\" IS NOT NULL ORDER BY \"Markets\"").fetchall()]
     periods = [r[0] for r in conn.execute(f"SELECT DISTINCT \"Periods\" FROM '{file_path}' WHERE \"Periods\" IS NOT NULL").fetchall()]
     
-    month_map = {"JAN": "01월", "FEB": "02월", "MAR": "03월", "APR": "04월", "MAY": "05월", "JUN": "06월", "JUL": "07월", "AUG": "08월", "SEP": "09월", "OCT": "10월", "NOV": "11월", "DEC": "12월"}
+    month_map = {
+        "JAN": "01월", "FEB": "02월", "MAR": "03월", "APR": "04월", "MAY": "05월", "JUN": "06월",
+        "JUL": "07월", "AUG": "08월", "SEP": "09월", "OCT": "10월", "NOV": "11월", "DEC": "12월"
+    }
     years, months = set(), set()
     for p in periods:
-        p_clean = p.strip()
+        p_clean = str(p).strip()
         if len(p_clean) >= 6:
             m_str, y_str = p_clean[:3].upper(), p_clean[4:6]
             if m_str in month_map: months.add(m_str)
@@ -91,6 +106,7 @@ def get_filter_options(file_name: str):
         "manufacturers": manufacturers
     }
 
+# 3. 대시보드 데이터 조회 API
 @app.get("/api/dashboard/{file_name}")
 def get_dashboard_data(
     file_name: str, 
@@ -100,10 +116,12 @@ def get_dashboard_data(
     manufacturer: Optional[str] = None,
     search: Optional[str] = None
 ):
-    if not file_name.startswith("data_") or not file_name.endswith(".parquet"):
-        return {"error": "Invalid file"}
+    decoded_file_name = urllib.parse.unquote(file_name)
+    file_path = os.path.join(BASE_DIR, decoded_file_name)
+    
+    if not os.path.exists(file_path):
+        return JSONResponse(status_code=404, content={"error": f"File not found: {decoded_file_name}"})
 
-    file_path = os.path.join(BASE_DIR, file_name)
     conn = duckdb.connect()
     
     where_clauses = ["1=1"]
@@ -119,6 +137,7 @@ def get_dashboard_data(
     has_dist = "Numeric 취급률" in cols
     dist_sql = "ROUND(AVG(TRY_CAST(\"Numeric 취급률\" AS DOUBLE)), 1)" if has_dist else "0.0"
 
+    # KPI 지표
     kpi_query = f"""
         SELECT 
             COALESCE(SUM("판매액 (백만원)") / 100.0, 0) as total_sales_eok,
@@ -136,6 +155,7 @@ def get_dashboard_data(
     total_sales, lotte_sales = kpi["total_sales_eok"], kpi["lotte_sales_eok"]
     kpi["lotte_ms"] = round((lotte_sales / total_sales * 100), 2) if total_sales > 0 else 0.0
 
+    # 제조사 랭킹
     mfr_query = f"""
         SELECT \"제조사\" as manufacturer, SUM(\"판매액 (백만원)\") / 100.0 as sales_eok
         FROM '{file_path}'
@@ -152,6 +172,7 @@ def get_dashboard_data(
             break
     kpi["lotte_rank"] = lotte_rank
 
+    # Top 10 브랜드
     brand_query = f"""
         SELECT COALESCE(\"브랜드\", '미분류') as brand, \"제조사\" as manufacturer, SUM(\"판매액 (백만원)\") / 100.0 as sales_eok
         FROM '{file_path}'
@@ -162,12 +183,14 @@ def get_dashboard_data(
     """
     brand_df = conn.execute(brand_query).df().to_dict(orient="records")
 
+    # 기간 목록 정렬
     period_meta_query = f"""
         SELECT DISTINCT {PERIOD_FORMAT_EXPR} as formatted_period, {PERIOD_SORT_EXPR} as sort_key
         FROM '{file_path}' WHERE {where_sql} ORDER BY sort_key ASC
     """
     formatted_periods = [p["formatted_period"] for p in conn.execute(period_meta_query).df().to_dict(orient="records")]
 
+    # 시계열 추이
     all_mfr_trend_query = f"""
         SELECT \"제조사\" as manufacturer, {PERIOD_FORMAT_EXPR} as formatted_period, {PERIOD_SORT_EXPR} as sort_key, SUM(\"판매액 (백만원)\") / 100.0 as sales_eok
         FROM '{file_path}' WHERE {where_sql}
@@ -180,6 +203,7 @@ def get_dashboard_data(
         if mfr not in trend_matrix: trend_matrix[mfr] = {}
         trend_matrix[mfr][p_fmt] = sales
 
+    # 테이블 데이터
     dist_select = 'COALESCE(\"Numeric 취급률\", \'-\') as \"Numeric 취급률\",' if has_dist else '\'-\' as \"Numeric 취급률\",'
     table_query = f"""
         SELECT 
