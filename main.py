@@ -74,7 +74,6 @@ def get_filter_options(file_name: str):
     
     conn = duckdb.connect()
     
-    # 동적 컬럼 확인
     cols = [c[0] for c in conn.execute(f"DESCRIBE SELECT * FROM '{file_path}'").fetchall()]
     mfr_col = "제조사" if "제조사" in cols else "MANUFACTURER"
     
@@ -120,7 +119,6 @@ def get_dashboard_data(
 
     conn = duckdb.connect()
     
-    # 동적 컬럼 확인
     cols = [c[0] for c in conn.execute(f"DESCRIBE SELECT * FROM '{file_path}'").fetchall()]
     mfr_col = "제조사" if "제조사" in cols else "MANUFACTURER"
     brand_col = "브랜드" if "브랜드" in cols else "BRAND"
